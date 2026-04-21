@@ -10,7 +10,7 @@ jobs:
   provision-and-deploy:
     runs-on: ubuntu-latest
     env:
-      # Azure Service Principal
+      # Azure Credentials
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -34,13 +34,10 @@ jobs:
       - name: Install Teams Toolkit CLI
         run: npm install -g @microsoft/teamsapp-cli
 
-      - name: Login to Azure (Service Principal)
-        run: |
-          teamsapp account login azure --service-principal \
-            --tenant ${{ env.AZURE_TENANT_ID }} \
-            --username ${{ env.AZURE_CLIENT_ID }} \
-            --password ${{ env.AZURE_CLIENT_SECRET }} \
-            --interactive false
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: '{"clientId":"${{ env.AZURE_CLIENT_ID }}","clientSecret":"${{ env.AZURE_CLIENT_SECRET }}","tenantId":"${{ env.AZURE_TENANT_ID }}","subscriptionId":"${{ env.AZURE_SUBSCRIPTION_ID }}"}'
 
       - name: Provision Resources (Dev)
         run: teamsapp provision --env dev --interactive false
