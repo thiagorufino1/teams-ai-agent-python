@@ -10,7 +10,7 @@ jobs:
   provision-and-deploy:
     runs-on: ubuntu-latest
     env:
-      # Apenas Azure Service Principal (Suporta ambientes corporativos com MFA)
+      # Azure Service Principal
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -32,19 +32,18 @@ jobs:
           node-version: '18'
 
       - name: Install Teams Toolkit CLI
-        run: npm install -g @microsoft/teamsfx-cli
+        run: npm install -g @microsoft/teamsapp-cli
 
       - name: Login to Azure (Service Principal)
         run: |
-          teamsfx account login azure --service-principal \
+          teamsapp account login azure --service-principal \
             --tenant ${{ env.AZURE_TENANT_ID }} \
             --username ${{ env.AZURE_CLIENT_ID }} \
-            --password ${{ env.AZURE_CLIENT_SECRET }}
+            --password ${{ env.AZURE_CLIENT_SECRET }} \
+            --interactive false
 
-      # NOTA: O 'provision' aqui vai executar apenas as etapas de infraestrutura (Bicep) 
-      # e pular as que exigem M365 se você já tiver o TEAMS_APP_ID configurado.
       - name: Provision Resources (Dev)
-        run: teamsfx provision --env dev
+        run: teamsapp provision --env dev --interactive false
 
       - name: Deploy Application (Dev)
-        run: teamsfx deploy --env dev
+        run: teamsapp deploy --env dev --interactive false
