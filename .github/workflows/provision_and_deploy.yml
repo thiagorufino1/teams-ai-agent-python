@@ -6,45 +6,37 @@ on:
     branches:
       - main
 
-env:
-  # Remove warnings de depreciação do Node 20
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   provision-and-deploy:
     runs-on: ubuntu-latest
     env:
-      # Azure Credentials
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       AZURE_RESOURCE_GROUP_NAME: ${{ secrets.AZURE_RESOURCE_GROUP_NAME }}
-      
-      # Secrets do Agente
       SECRET_AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
       AZURE_OPENAI_DEPLOYMENT_NAME: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: "22"
+          package-manager-cache: false
 
       - name: Install Microsoft 365 Agents Toolkit CLI
-        run: npm install -g @microsoft/teamsapp-cli
+        run: npm install -g @microsoft/m365agentstoolkit-cli
 
-      - name: Login to Azure
-        uses: azure/login@v1
-        with:
-          creds: '{"clientId":"${{ env.AZURE_CLIENT_ID }}","clientSecret":"${{ env.AZURE_CLIENT_SECRET }}","tenantId":"${{ env.AZURE_TENANT_ID }}","subscriptionId":"${{ env.AZURE_SUBSCRIPTION_ID }}"}'
+      - name: Login to Azure with service principal
+        run: atk auth login azure --username "${{ env.AZURE_CLIENT_ID }}" --service-principal true --tenant "${{ env.AZURE_TENANT_ID }}" --password "${{ env.AZURE_CLIENT_SECRET }}" --interactive false
 
-      - name: Provision Resources (Dev)
-        run: teamsapp provision --env dev --interactive false
+      - name: Provision resources
+        run: atk provision --env dev --config-file-path m365agents.yml --interactive false
 
-      - name: Deploy Application (Dev)
-        run: teamsapp deploy --env dev --interactive false
+      - name: Deploy application
+        run: atk deploy --env dev --config-file-path m365agents.yml --interactive false

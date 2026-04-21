@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://aka.ms/m365-agents-toolkits/v1.8/yaml.schema.json
+# Visit https://aka.ms/teamsfx-v5.0-guide for details on this file
+# Visit https://aka.ms/teamsfx-actions for details on actions
+version: v1.8
+
+environmentFolderPath: ./env
+
+provision:
+#  - uses: teamsApp/create
+#    with:
+#      name: sdk-m365-agent${{APP_NAME_SUFFIX}}
+#    writeToEnvironmentFile:
+#      teamsAppId: TEAMS_APP_ID
+
+  - uses: arm/deploy
+    with:
+      subscriptionId: ${{AZURE_SUBSCRIPTION_ID}}
+      resourceGroupName: ${{AZURE_RESOURCE_GROUP_NAME}}
+      templates:
+        - path: ./infra/azure.bicep
+          parameters: ./infra/azure.parameters.json
+          deploymentName: Create-resources-for-tab
+      bicepCliVersion: v0.9.1
+
+  - uses: teamsApp/zipAppPackage
+    with:
+      manifestPath: ./appPackage/manifest.json
+      outputZipPath: ./appPackage/build/appPackage.${{TEAMSFX_ENV}}.zip
+      outputFolder: ./appPackage/build
+
+deploy:
+  - uses: azureAppService/zipDeploy
+    with:
+      artifactFolder: src
+      ignoreFile: .webappignore
+      resourceId: ${{BOT_AZURE_APP_SERVICE_RESOURCE_ID}}
+
+publish: []
+
+projectId: 47522bbb-7b85-451e-bcb9-96a8c72f33fd
