@@ -1,7 +1,7 @@
 import os
-import sys
+import asyncio
 import json
-import traceback
+import logging
 from dotenv import load_dotenv
 
 from microsoft_agents.hosting.core import (
@@ -24,6 +24,49 @@ from sdk_workarounds import apply_sdk_workarounds
 
 load_dotenv()
 apply_sdk_workarounds()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+_RETRY_STATUSES = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0  # seconds
+
+
+async def _call_openai_with_retry(client, *, stream: bool, messages, model, **params):
+    """Call Azure OpenAI with exponential backoff on transient errors."""
+    from openai import APIStatusError, APIConnectionError
+
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return await client.chat.completions.create(
+                messages=messages,
+                model=model,
+                stream=stream,
+                **params,
+            )
+        except APIStatusError as exc:
+            if exc.status_code not in _RETRY_STATUSES:
+                raise
+            last_exc = exc
+        except APIConnectionError as exc:
+            last_exc = exc
+
+        delay = _RETRY_BASE_DELAY * (2 ** attempt)
+        logger.warning(
+            "OpenAI transient error (attempt %d/%d), retrying in %.1fs: %s",
+            attempt + 1,
+            _MAX_RETRIES,
+            delay,
+            last_exc,
+        )
+        await asyncio.sleep(delay)
+
+    raise last_exc
 
 # Load configuration
 config = Config(os.environ)
@@ -66,7 +109,7 @@ agent_app = AgentApplication[TurnState](
 
 @agent_app.conversation_update("membersAdded")
 async def on_members_added(context: TurnContext, _state: TurnState):
-    await context.send_activity("Hi there! I'm an agent to chat with you.")
+    await context.send_activity("Olá! Como posso ajudar você hoje?")
 
 # Listen for ANY message to be received. MUST BE AFTER ANY OTHER MESSAGE HANDLERS
 @agent_app.activity(ActivityTypes.message)
@@ -79,10 +122,7 @@ async def on_message(context: TurnContext, state: TurnState):
 
     processed_ids: list = state.conversation.get_value("processed_activity_ids", list) or []
     if activity_id and activity_id in processed_ids:
-        print(
-            f"[dedupe] ignoring duplicate activity_id={activity_id} channel_id={channel_id}",
-            flush=True,
-        )
+        logger.info("dedupe: ignoring duplicate activity_id=%s channel_id=%s", activity_id, channel_id)
         return
     if activity_id:
         processed_ids.append(activity_id)
@@ -98,8 +138,8 @@ async def on_message(context: TurnContext, state: TurnState):
     if len(history) > config.max_history_turns:
         history = history[-config.max_history_turns:]
 
-    print(
-        "[stream] start",
+    logger.info(
+        "stream start: %s",
         json.dumps(
             {
                 "feedback_loop": config.ai_feedback_loop_enabled,
@@ -111,7 +151,6 @@ async def on_message(context: TurnContext, state: TurnState):
                 "conversation_id": getattr(context.activity.conversation, "id", None),
             }
         ),
-        flush=True,
     )
 
     if not is_webchat:
@@ -127,30 +166,29 @@ async def on_message(context: TurnContext, state: TurnState):
             )
         )
         response.queue_informative_update("Generating response...")
-        print('[stream] queued informative update: "Generating response..."', flush=True)
+        logger.debug('stream: queued informative update "Generating response..."')
 
     assistant_message = ""
     try:
         if is_webchat:
-            result = await client.chat.completions.create(
+            result = await _call_openai_with_retry(
+                client,
+                stream=False,
                 messages=[{"role": "system", "content": prompt_text}, *history],
                 model=config.azure_openai_deployment_name,
-                stream=False,
-                **prompt_params
+                **prompt_params,
             )
             assistant_message = result.choices[0].message.content or ""
             if assistant_message:
                 await context.send_activity(assistant_message)
-                print(
-                    f"[webchat] sent non-streaming response ({len(assistant_message)} chars)",
-                    flush=True,
-                )
+                logger.info("webchat: sent non-streaming response (%d chars)", len(assistant_message))
         else:
-            result = await client.chat.completions.create(
+            result = await _call_openai_with_retry(
+                client,
+                stream=True,
                 messages=[{"role": "system", "content": prompt_text}, *history],
                 model=config.azure_openai_deployment_name,
-                stream=True,
-                **prompt_params
+                **prompt_params,
             )
 
             async for chunk in result:
@@ -162,22 +200,18 @@ async def on_message(context: TurnContext, state: TurnState):
                     chunk_count += 1
                     assistant_message += content
                     response.queue_text_chunk(content)
-                    print(
-                        f"[stream] queued chunk #{chunk_count} ({len(content)} chars)",
-                        flush=True,
-                    )
+                    logger.debug("stream: queued chunk #%d (%d chars)", chunk_count, len(content))
         if not assistant_message:
             fallback = "No content was returned by the model."
             assistant_message = fallback
             if is_webchat:
                 await context.send_activity(fallback)
-                print("[webchat] model returned no content", flush=True)
+                logger.warning("webchat: model returned no content")
             else:
                 response.queue_text_chunk(fallback)
-                print("[stream] model returned no content", flush=True)
+                logger.warning("stream: model returned no content")
     except Exception as exc:
-        print(f"[stream] openai error: {exc}", file=sys.stderr, flush=True)
-        traceback.print_exc()
+        logger.error("OpenAI error: %s", exc, exc_info=True)
         fallback = (
             "Desculpe, ocorreu um erro ao gerar a resposta. "
             "Verifique os logs do App Service para detalhes."
@@ -188,19 +222,13 @@ async def on_message(context: TurnContext, state: TurnState):
         else:
             response.queue_text_chunk(fallback)
     finally:
-        print(
-            "[stream] ending",
-            json.dumps(
-                {
-                    "chunk_count": chunk_count,
-                    "message_length": len(response.get_message() or ""),
-                }
-            ),
-            flush=True,
+        logger.info(
+            "stream end: %s",
+            json.dumps({"chunk_count": chunk_count, "message_length": len(response.get_message() or "")}),
         )
         if not is_webchat:
             await response.end_stream()
-            print("[stream] end_stream completed", flush=True)
+            logger.debug("stream: end_stream completed")
 
     # Save assistant response to history and persist
     if assistant_message:
@@ -209,11 +237,5 @@ async def on_message(context: TurnContext, state: TurnState):
 
 @agent_app.error
 async def on_error(context: TurnContext, error: Exception):
-    # This check writes out errors to console log .vs. app insights.
-    # NOTE: In production environment, you should consider logging this to Azure
-    #       application insights.
-    print(f"\n [on_turn_error] unhandled error: {error}", file=sys.stderr)
-    traceback.print_exc()
-
-    # Send a message to the user
+    logger.error("unhandled turn error: %s", error, exc_info=True)
     await context.send_activity("The agent encountered an error or bug.")
