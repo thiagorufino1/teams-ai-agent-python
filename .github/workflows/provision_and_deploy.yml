@@ -14,7 +14,6 @@ jobs:
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      AZURE_RESOURCE_GROUP_NAME: ${{ secrets.AZURE_RESOURCE_GROUP_NAME }}
       SECRET_AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
       AZURE_OPENAI_DEPLOYMENT_NAME: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
@@ -28,6 +27,31 @@ jobs:
         with:
           node-version: "22"
           package-manager-cache: false
+
+      - name: Resolve Azure environment
+        run: |
+          RESOURCE_SUFFIX="$(grep '^RESOURCE_SUFFIX=' env/.env.dev | cut -d= -f2- | tr -d '\r')"
+          AZURE_LOCATION="$(grep '^AZURE_LOCATION=' env/.env.dev | cut -d= -f2- | tr -d '\r')"
+          if [ -z "$RESOURCE_SUFFIX" ]; then
+            echo "RESOURCE_SUFFIX is required in env/.env.dev" >&2
+            exit 1
+          fi
+          if [ -z "$AZURE_LOCATION" ]; then
+            echo "AZURE_LOCATION is required in env/.env.dev" >&2
+            exit 1
+          fi
+          RESOURCE_SUFFIX="${RESOURCE_SUFFIX#-}"
+          echo "RESOURCE_SUFFIX=$RESOURCE_SUFFIX" >> "$GITHUB_ENV"
+          echo "AZURE_LOCATION=$AZURE_LOCATION" >> "$GITHUB_ENV"
+          echo "AZURE_RESOURCE_GROUP_NAME=rg-$RESOURCE_SUFFIX" >> "$GITHUB_ENV"
+
+      - name: Login to Azure CLI
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ env.AZURE_CLIENT_ID }}","clientSecret":"${{ env.AZURE_CLIENT_SECRET }}","tenantId":"${{ env.AZURE_TENANT_ID }}","subscriptionId":"${{ env.AZURE_SUBSCRIPTION_ID }}"}'
+
+      - name: Ensure resource group exists
+        run: az group create --name "${{ env.AZURE_RESOURCE_GROUP_NAME }}" --location "${{ env.AZURE_LOCATION }}" --output none
 
       - name: Install toolkit and run provision/deploy
         run: |

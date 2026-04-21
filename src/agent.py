@@ -73,6 +73,20 @@ async def on_members_added(context: TurnContext, _state: TurnState):
 async def on_message(context: TurnContext, state: TurnState):
     response = context.streaming_response
     chunk_count = 0
+    channel_id = getattr(context.activity, "channel_id", None)
+    activity_id = getattr(context.activity, "id", None)
+    is_webchat = channel_id == "webchat"
+
+    processed_ids: list = state.conversation.get_value("processed_activity_ids", list) or []
+    if activity_id and activity_id in processed_ids:
+        print(
+            f"[dedupe] ignoring duplicate activity_id={activity_id} channel_id={channel_id}",
+            flush=True,
+        )
+        return
+    if activity_id:
+        processed_ids.append(activity_id)
+        state.conversation.set_value("processed_activity_ids", processed_ids[-50:])
 
     # Load conversation history from state
     history: list = state.conversation.get_value("history", list) or []
@@ -92,54 +106,75 @@ async def on_message(context: TurnContext, state: TurnState):
                 "generated_by_ai_label": config.ai_generated_label_enabled,
                 "sensitivity_name": config.sensitivity_name,
                 "history_turns": len(history),
-                "channel_id": getattr(context.activity, "channel_id", None),
+                "channel_id": channel_id,
+                "activity_id": activity_id,
                 "conversation_id": getattr(context.activity.conversation, "id", None),
             }
         ),
         flush=True,
     )
 
-    response.set_feedback_loop(config.ai_feedback_loop_enabled)
-    if config.ai_feedback_loop_enabled:
-        response.set_feedback_loop_type("default")
-    response.set_generated_by_ai_label(config.ai_generated_label_enabled)
-    response.set_sensitivity_label(
-        SensitivityUsageInfo(
-            type=config.sensitivity_type,
-            schema_type=config.sensitivity_schema_type,
-            name=config.sensitivity_name,
+    if not is_webchat:
+        response.set_feedback_loop(config.ai_feedback_loop_enabled)
+        if config.ai_feedback_loop_enabled:
+            response.set_feedback_loop_type("default")
+        response.set_generated_by_ai_label(config.ai_generated_label_enabled)
+        response.set_sensitivity_label(
+            SensitivityUsageInfo(
+                type=config.sensitivity_type,
+                schema_type=config.sensitivity_schema_type,
+                name=config.sensitivity_name,
+            )
         )
-    )
-    response.queue_informative_update("Generating response...")
-    print('[stream] queued informative update: "Generating response..."', flush=True)
+        response.queue_informative_update("Generating response...")
+        print('[stream] queued informative update: "Generating response..."', flush=True)
 
     assistant_message = ""
     try:
-        result = await client.chat.completions.create(
-            messages=[{"role": "system", "content": prompt_text}, *history],
-            model=config.azure_openai_deployment_name,
-            stream=True,
-            **prompt_params
-        )
-
-        async for chunk in result:
-            if not chunk.choices:
-                continue
-
-            content = chunk.choices[0].delta.content
-            if content:
-                chunk_count += 1
-                assistant_message += content
-                response.queue_text_chunk(content)
+        if is_webchat:
+            result = await client.chat.completions.create(
+                messages=[{"role": "system", "content": prompt_text}, *history],
+                model=config.azure_openai_deployment_name,
+                stream=False,
+                **prompt_params
+            )
+            assistant_message = result.choices[0].message.content or ""
+            if assistant_message:
+                await context.send_activity(assistant_message)
                 print(
-                    f"[stream] queued chunk #{chunk_count} ({len(content)} chars)",
+                    f"[webchat] sent non-streaming response ({len(assistant_message)} chars)",
                     flush=True,
                 )
+        else:
+            result = await client.chat.completions.create(
+                messages=[{"role": "system", "content": prompt_text}, *history],
+                model=config.azure_openai_deployment_name,
+                stream=True,
+                **prompt_params
+            )
+
+            async for chunk in result:
+                if not chunk.choices:
+                    continue
+
+                content = chunk.choices[0].delta.content
+                if content:
+                    chunk_count += 1
+                    assistant_message += content
+                    response.queue_text_chunk(content)
+                    print(
+                        f"[stream] queued chunk #{chunk_count} ({len(content)} chars)",
+                        flush=True,
+                    )
         if not assistant_message:
             fallback = "No content was returned by the model."
             assistant_message = fallback
-            response.queue_text_chunk(fallback)
-            print("[stream] model returned no content", flush=True)
+            if is_webchat:
+                await context.send_activity(fallback)
+                print("[webchat] model returned no content", flush=True)
+            else:
+                response.queue_text_chunk(fallback)
+                print("[stream] model returned no content", flush=True)
     except Exception as exc:
         print(f"[stream] openai error: {exc}", file=sys.stderr, flush=True)
         traceback.print_exc()
@@ -148,7 +183,10 @@ async def on_message(context: TurnContext, state: TurnState):
             "Verifique os logs do App Service para detalhes."
         )
         assistant_message = fallback
-        response.queue_text_chunk(fallback)
+        if is_webchat:
+            await context.send_activity(fallback)
+        else:
+            response.queue_text_chunk(fallback)
     finally:
         print(
             "[stream] ending",
@@ -160,8 +198,9 @@ async def on_message(context: TurnContext, state: TurnState):
             ),
             flush=True,
         )
-        await response.end_stream()
-        print("[stream] end_stream completed", flush=True)
+        if not is_webchat:
+            await response.end_stream()
+            print("[stream] end_stream completed", flush=True)
 
     # Save assistant response to history and persist
     if assistant_message:
