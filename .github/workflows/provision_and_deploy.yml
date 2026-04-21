@@ -29,19 +29,11 @@ jobs:
           node-version: "22"
           package-manager-cache: false
 
-      - name: Install Microsoft 365 Agents Toolkit CLI
-        run: npm install -g @microsoft/m365agentstoolkit-cli
-
-      - name: Login to Azure with service principal
-        run: atk auth login azure --username "${{ env.AZURE_CLIENT_ID }}" --service-principal true --tenant "${{ env.AZURE_TENANT_ID }}" --password "${{ env.AZURE_CLIENT_SECRET }}" --interactive false
-
-      - name: Sync CI environment into env/.env.dev
+      - name: Install toolkit and run provision/deploy
         run: |
+          npm install -g @microsoft/m365agentstoolkit-cli
           sed -i "s|^AZURE_SUBSCRIPTION_ID=.*|AZURE_SUBSCRIPTION_ID=${{ env.AZURE_SUBSCRIPTION_ID }}|" env/.env.dev
           sed -i "s|^AZURE_RESOURCE_GROUP_NAME=.*|AZURE_RESOURCE_GROUP_NAME=${{ env.AZURE_RESOURCE_GROUP_NAME }}|" env/.env.dev
-
-      - name: Provision resources
-        run: atk provision --env dev --interactive false
-
-      - name: Deploy application
-        run: atk deploy --env dev --interactive false
+          atk auth login azure --username "${{ env.AZURE_CLIENT_ID }}" --service-principal true --tenant "${{ env.AZURE_TENANT_ID }}" --password "${{ env.AZURE_CLIENT_SECRET }}" --interactive false
+          atk provision --env dev --interactive false
+          atk deploy --env dev --interactive false
