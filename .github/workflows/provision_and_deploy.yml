@@ -36,7 +36,7 @@ jobs:
         run: atk auth login azure --username "${{ env.AZURE_CLIENT_ID }}" --service-principal true --tenant "${{ env.AZURE_TENANT_ID }}" --password "${{ env.AZURE_CLIENT_SECRET }}" --interactive false
 
       - name: Provision resources
-        run: atk provision --env dev --config-file-path m365agents.yml --interactive false
+        run: atk provision --env dev --interactive false
 
       - name: Deploy application
-        run: atk deploy --env dev --config-file-path m365agents.yml --interactive false
+        run: atk deploy --env dev --interactive false
