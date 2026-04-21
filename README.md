@@ -1,129 +1,100 @@
 # Microsoft 365 Agent for Teams
 
-Ponto de partida para construir agentes no Microsoft Teams com Python. Usa o **Microsoft 365 Agents SDK** e o **Azure OpenAI** para entregar respostas em streaming, memória de conversa e metadados nativos do Teams, pronto para provisionar no Azure.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
+![SDK](https://img.shields.io/badge/M365%20Agents%20SDK-0.8.x-purple)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Azure](https://img.shields.io/badge/Azure-OpenAI-orange?logo=microsoft-azure)
+
+Agente conversacional para Microsoft Teams construído com o **Microsoft 365 Agents SDK** e **Azure OpenAI**. Oferece respostas em streaming, memória de conversa por sessão e metadados nativos do Teams — pronto para provisionamento no Azure via Bicep e CI/CD com GitHub Actions.
 
 ---
 
-## Visão geral
+## Sumário
 
-Este projeto entrega:
+- [Visão Geral](#visão-geral)
+- [Arquitetura](#arquitetura)
+- [Início Rápido](#início-rápido)
+- [Configuração](#configuração)
+- [Execução e Depuração](#execução-e-depuração)
+- [Implantação no Azure](#implantação-no-azure)
+- [Estrutura do Repositório](#estrutura-do-repositório)
+- [Referências](#referências)
 
-- **Respostas em streaming**: tokens chegam progressivamente ao usuário, sem esperar a resposta completa
-- **Memória de conversa**: o agente lembra das mensagens anteriores dentro da mesma conversa
-- **Feedback loop**: botões de like/dislike aparecem ao final de cada resposta
-- **Badge "Gerado por IA"**: indicação visual nativa do Teams na mensagem do agente
-- **Sensitivity label**: metadado de sensibilidade configurável enviado junto com a resposta
-- **Prompt e parâmetros externalizados**: sistema de prompt e configurações do modelo em arquivos separados do código
-- **Identidade e branding configurável**: nome, descrição e informações do desenvolvedor via variáveis de ambiente, sem alterar o manifest diretamente
+---
+
+## Visão Geral
+
+Este projeto entrega uma base de produção para agentes no Teams com:
+
+| Funcionalidade | Descrição |
+|---|---|
+| **Streaming incremental** | Tokens chegam progressivamente ao usuário sem aguardar a resposta completa |
+| **Memória de conversa** | Histórico de mensagens mantido por sessão com limite configurável |
+| **Feedback loop** | Botões de like/dislike nativos ao final de cada resposta |
+| **Badge "Gerado por IA"** | Indicação visual nativa do Teams em todas as respostas do agente |
+| **Sensitivity label** | Metadado de classificação de sensibilidade configurável por ambiente |
+| **Prompt externalizado** | Sistema de prompt e parâmetros do modelo em arquivos independentes do código |
+| **Branding configurável** | Nome, descrição e informações do desenvolvedor via variáveis de ambiente |
+| **Retry automático** | Backoff exponencial em falhas transientes do Azure OpenAI (429, 5xx) |
 
 ---
 
 ## Arquitetura
 
 ```
-Usuário no Teams
-      |
-      v
-Microsoft Teams (canal)
-      |
-      v
-Azure Bot Service  <---  Autentica via Managed Identity
-      |
-      v
-Python Bot (aiohttp)  <---  Microsoft 365 Agents SDK
-      |
-      v
-Azure OpenAI (streaming)
-      |
-      v
-Resposta incremental de volta ao Teams
+┌─────────────────────────────────────────────────────────┐
+│                    Usuário no Teams                     │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│              Azure Bot Service (Teams Channel)          │
+│         Autenticação via User Assigned Managed Identity │
+└──────────────────────────┬──────────────────────────────┘
+                           │  POST /api/messages
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│          Azure App Service (Python / aiohttp)           │
+│                                                         │
+│  app.py ──► JWT Middleware ──► agent.py                 │
+│                                    │                    │
+│              ConversationState ◄───┤                    │
+│              (histórico/sessão)    │                    │
+└──────────────────────────┬──────────────────────────────┘
+                           │  Streaming
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                   Azure OpenAI Service                  │
+│              (chat.completions com stream=True)         │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Arquivos principais
+### Componentes Principais
 
 | Arquivo | Responsabilidade |
 |---|---|
-| [src/app.py](src/app.py) | Servidor HTTP aiohttp, expõe `/api/messages` |
-| [src/agent.py](src/agent.py) | Handlers do agente, streaming, memória de conversa |
-| [src/config.py](src/config.py) | Leitura e validação das variáveis de ambiente |
+| [src/app.py](src/app.py) | Servidor HTTP aiohttp — expõe `/api/messages`, `/healthz` |
+| [src/agent.py](src/agent.py) | Handlers do agente, streaming, retry e memória de conversa |
+| [src/config.py](src/config.py) | Leitura e validação de variáveis de ambiente com erros descritivos |
 | [src/sdk_workarounds.py](src/sdk_workarounds.py) | Patches de compatibilidade para o SDK 0.8.x |
 | [src/prompts/chat/skprompt.txt](src/prompts/chat/skprompt.txt) | Prompt de sistema do agente |
-| [src/prompts/chat/config.json](src/prompts/chat/config.json) | Parâmetros de completion (temperatura, tokens, etc.) |
-| [appPackage/manifest.json](appPackage/manifest.json) | Manifesto do app Teams com variáveis de branding |
-| [infra/azure.bicep](infra/azure.bicep) | Provisionamento dos recursos Azure via Bicep |
-| [infra/azure.parameters.json](infra/azure.parameters.json) | Parâmetros do Bicep injetados pelo toolkit |
-| [m365agents.yml](m365agents.yml) | Workflow principal de provision/deploy/publish |
+| [src/prompts/chat/config.json](src/prompts/chat/config.json) | Parâmetros de completion (temperatura, max_tokens, etc.) |
+| [appPackage/manifest.json](appPackage/manifest.json) | Manifesto do app Teams com substituição de variáveis `${{VAR}}` |
+| [infra/azure.bicep](infra/azure.bicep) | Infrastructure as Code — provisionamento dos recursos Azure |
+| [m365agents.yml](m365agents.yml) | Workflow principal de provision/deploy/publish do toolkit |
 
 ---
 
-## Recursos implementados
+## Início Rápido
 
-### Streaming incremental
-A resposta é enviada em chunks conforme o modelo gera tokens, usando `StreamingResponse` do SDK. O usuário vê o texto aparecer progressivamente, sem aguardar o término da geração.
+### 1. Clonar o repositório
 
-### Memória de conversa
-O histórico de mensagens é armazenado em `ConversationState` e persistido automaticamente pelo SDK por conversa (chave: `channel_id/conversations/conversation_id`).
+```bash
+git clone <url-do-repositorio>
+cd teams-ai-agent-python
+```
 
-A cada turno:
-1. O histórico é carregado do estado
-2. A mensagem do usuário é adicionada
-3. O histórico completo é enviado ao modelo como contexto
-4. A resposta do assistente é salva no histórico
-5. O SDK persiste o estado automaticamente
-
-O histórico é limitado a `M365_AGENT_MAX_HISTORY_TURNS` mensagens (padrão: 20) para controlar o consumo de tokens. O `MemoryStorage` padrão persiste enquanto o processo está rodando. Para persistência entre restarts, substitua por Azure Cosmos DB.
-
-### Feedback loop
-Botões de like/dislike aparecem ao final de cada resposta no Teams. Habilitado via `M365_AGENT_FEEDBACK_LOOP=true`.
-
-### Badge "Gerado por IA"
-Indicação visual nativa do Teams informando que a mensagem foi gerada por IA. Habilitado via `M365_AGENT_AI_LABEL=true`.
-
-### Sensitivity label
-Metadado de classificação de sensibilidade enviado junto com a resposta final. Configurável via `M365_AGENT_SENSITIVITY_NAME`.
-
-### Prompt e parâmetros externalizados
-O prompt de sistema fica em `src/prompts/chat/skprompt.txt` e os parâmetros do modelo (temperatura, max_tokens, etc.) em `src/prompts/chat/config.json`. Nenhum dos dois requer alteração de código Python.
-
-### Patches de compatibilidade SDK
-O arquivo `src/sdk_workarounds.py` aplica três patches no SDK 0.8.x em tempo de inicialização:
-
-- **AI metadata**: garante que o badge "Gerado por IA" seja sempre emitido, mesmo sem citations
-- **Feedback loop**: injeta `feedbackLoop` em `channel_data`, onde o Teams espera encontrá-lo
-- **Cache JWKS**: evita um fetch HTTPS por turno na validação JWT, prevenindo timeouts em redes lentas
-
----
-
-## Provisionamento Azure
-
-O comando **Provision** no toolkit cria os seguintes recursos na sua subscription:
-
-| Recurso Azure | Descrição |
-|---|---|
-| **App Service Plan** (Linux, B1) | Plano de hospedagem do bot |
-| **Web App** (Python 3.11) | Instância do bot em execução |
-| **User Assigned Managed Identity** | Identidade do app para autenticação sem senha |
-| **Azure Bot Service** | Registro do bot no Bot Framework, vinculado ao Teams |
-
-As variáveis de saída do Bicep (BOT_ID, BOT_DOMAIN, etc.) são gravadas automaticamente nos arquivos `env/` pelo toolkit.
-
----
-
-## Pré-requisitos
-
-- Python 3.10+
-- VS Code com a extensão [Microsoft 365 Agents Toolkit](https://aka.ms/teams-toolkit)
-- Conta Microsoft 365 Developer para teste no Teams
-- Recurso Azure OpenAI com um deployment ativo
-
----
-
-## Primeiros passos após clonar
-
-**1. Clonar e Iniciar**
-Basta abrir o projeto no VS Code e pressionar **F5**. O toolkit agora possui uma tarefa de automação que criará a `venv` e instalará as dependências para você automaticamente.
-
-**2. Criar os arquivos de ambiente a partir dos templates**
+### 2. Criar arquivos de ambiente a partir dos templates
 
 ```bash
 cp env/.env.local.example           env/.env.local
@@ -132,142 +103,185 @@ cp env/.env.playground.example      env/.env.playground
 cp env/.env.playground.user.example env/.env.playground.user
 ```
 
-**3. Preencher as credenciais nos arquivos `.user`**
-Abra `env/.env.local.user` e `env/.env.playground.user` e insira suas chaves do Azure OpenAI.
+### 3. Preencher as credenciais do Azure OpenAI
+
+Abra `env/.env.local.user` e `env/.env.playground.user` e preencha:
 
 ```env
-SECRET_AZURE_OPENAI_API_KEY=sua_chave_aqui
-AZURE_OPENAI_ENDPOINT=https://seu-recurso.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
+SECRET_AZURE_OPENAI_API_KEY=<sua-chave-aqui>
+AZURE_OPENAI_ENDPOINT=https://<seu-recurso>.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT_NAME=<nome-do-deployment>
 ```
 
-**4. (Opcional) Ajustar identidade do agente em `env/.env.local`**
+> **Atenção:** Nunca versione arquivos `*.user`. Eles estão listados no `.gitignore` e contêm credenciais sensíveis.
+
+### 4. (Opcional) Personalizar a identidade do agente
+
+Em `env/.env.local`, ajuste o branding conforme necessário:
 
 ```env
-APP_SHORT_NAME=Meu Agente
-APP_FULL_NAME=Nome completo do agente
-APP_DEVELOPER_NAME=Nome da empresa
+APP_SHORT_NAME=Nome do Bot
+APP_FULL_NAME=Nome Completo do Bot
+APP_DEVELOPER_NAME=Nome da Empresa
 APP_DEVELOPER_WEBSITE=https://suaempresa.com
+APP_DEVELOPER_PRIVACY_URL=https://suaempresa.com/privacidade
+APP_DEVELOPER_TERMS_URL=https://suaempresa.com/termos
 ```
 
-**5. Pressionar F5 no VS Code**
+### 5. Iniciar em modo de depuração
 
-O toolkit provisiona o BOT_ID, TEAMS_APP_ID e todos os campos gerados automaticamente.
+Abra o projeto no VS Code e pressione **F5**. O toolkit criará automaticamente o `venv` e instalará as dependências.
 
 ---
 
 ## Configuração
 
-### Arquivos de ambiente
+### Hierarquia de Arquivos de Ambiente
 
-O arquivo `.env` na raiz é gerado automaticamente pelo toolkit durante o deploy. Não edite manualmente.
-
-| Arquivo | Commitado | Conteúdo |
+| Arquivo | Versionado | Conteúdo |
 |---|---|---|
-| `env/.env.local.example` | sim | template para `env/.env.local` |
-| `env/.env.local.user.example` | sim | template para `env/.env.local.user` |
-| `env/.env.local` | não | vars não-secretas: branding, IDs gerados pelo toolkit |
-| `env/.env.local.user` | não | secrets: chave Azure OpenAI, senha do bot |
-| `env/.env.dev` | sim | vars para deploy no Azure (subscription, resource group) |
-| `.env` (raiz) | não | gerado automaticamente pelo toolkit |
+| `env/.env.local.example` | Sim | Template de variáveis não-secretas |
+| `env/.env.local.user.example` | Sim | Template de variáveis secretas |
+| `env/.env.local` | **Não** | Branding, IDs gerados pelo toolkit |
+| `env/.env.local.user` | **Não** | Chaves de API, credenciais |
+| `env/.env.dev` | Sim | Parâmetros de deploy (subscription, resource group) |
+| `.env` (raiz) | **Não** | Gerado automaticamente pelo toolkit — não editar |
 
-### Identidade e branding
+### Variáveis Obrigatórias
 
-Definidos em `env/.env.local` e injetados no `appPackage/manifest.json` via substituição `${{VAR}}` pelo toolkit. Também usados no `azure.parameters.json` para nomear o Azure Bot.
-
-| Variável | Onde aparece |
+| Variável | Descrição |
 |---|---|
-| `APP_SHORT_NAME` | Nome do bot no chat do Teams |
-| `APP_FULL_NAME` | Nome na página de instalação |
-| `APP_DESCRIPTION_SHORT` | Descrição curta na listagem de apps |
-| `APP_DESCRIPTION_FULL` | Descrição completa na página do app |
-| `APP_DEVELOPER_NAME` | "Desenvolvido por" na página do app |
-| `APP_DEVELOPER_WEBSITE` | Link do desenvolvedor |
-| `APP_DEVELOPER_PRIVACY_URL` | Link para política de privacidade |
-| `APP_DEVELOPER_TERMS_URL` | Link para termos de uso |
+| `AZURE_OPENAI_API_KEY` | Chave de acesso ao recurso Azure OpenAI |
+| `AZURE_OPENAI_ENDPOINT` | URL do recurso (`https://<nome>.openai.azure.com/`) |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | Nome do deployment do modelo (ex: `gpt-4o`) |
 
-### Variáveis de comportamento
-
-Configuradas em `env/.env.local.user` ou `env/.env.local`.
+### Variáveis de Comportamento
 
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `AZURE_OPENAI_API_VERSION` | `2024-12-01-preview` | Versão da API Azure OpenAI |
-| `M365_AGENT_FEEDBACK_LOOP` | `true` | Habilita botões like/dislike na resposta |
+| `M365_AGENT_FEEDBACK_LOOP` | `true` | Habilita botões like/dislike |
 | `M365_AGENT_AI_LABEL` | `true` | Exibe badge "Gerado por IA" |
-| `M365_AGENT_SENSITIVITY_NAME` | `Internal` | Nome do label de sensibilidade |
-| `M365_AGENT_MAX_HISTORY_TURNS` | `20` | Número de turnos de histórico mantidos por conversa |
+| `M365_AGENT_SENSITIVITY_NAME` | `Internal` | Nome do rótulo de sensibilidade |
+| `M365_AGENT_MAX_HISTORY_TURNS` | `20` | Número máximo de turnos no histórico |
+
+### Variáveis de Identidade e Branding
+
+Injetadas no `appPackage/manifest.json` via substituição `${{VAR}}` pelo toolkit.
+
+| Variável | Onde aparece no Teams |
+|---|---|
+| `APP_SHORT_NAME` | Nome do bot no chat |
+| `APP_FULL_NAME` | Nome na página de instalação |
+| `APP_DESCRIPTION_SHORT` | Descrição na listagem de apps |
+| `APP_DESCRIPTION_FULL` | Descrição completa na página do app |
+| `APP_DEVELOPER_NAME` | Campo "Desenvolvido por" |
+| `APP_DEVELOPER_WEBSITE` | Link do desenvolvedor |
+| `APP_DEVELOPER_PRIVACY_URL` | Link para política de privacidade |
+| `APP_DEVELOPER_TERMS_URL` | Link para termos de uso |
+
+### Customização do Prompt
+
+O prompt de sistema e os parâmetros do modelo são externalizados e não requerem alteração de código:
+
+- **[src/prompts/chat/skprompt.txt](src/prompts/chat/skprompt.txt)** — instruções de comportamento do agente
+- **[src/prompts/chat/config.json](src/prompts/chat/config.json)** — parâmetros de completion (temperatura, `max_tokens`, etc.)
 
 ---
 
-## Como executar
+## Execução e Depuração
 
-### Playground (validação rápida)
+### Playground (validação rápida sem Teams)
 
-No VS Code, selecione a configuração **`Debug in Microsoft 365 Agents Playground`** e pressione F5.
+No VS Code, selecione **`Debug in Microsoft 365 Agents Playground`** e pressione **F5**.
 
-Útil para validar:
+Ideal para validar:
 - Recebimento e resposta de mensagens
 - Streaming de texto
-- Comportamento geral dos handlers
+- Lógica dos handlers
 
-> O Playground não renderiza feedback loop, badge "Gerado por IA" e sensitivity label. Para validar esses recursos, use o Teams.
+> O Playground não renderiza feedback loop, badge "Gerado por IA" e sensitivity label. Para validar essas funcionalidades, utilize o Teams.
 
-### Microsoft Teams
+### Microsoft Teams (validação completa)
 
-No VS Code, selecione uma das configurações abaixo e pressione F5:
+No VS Code, selecione uma das configurações abaixo e pressione **F5**:
 
-- `Debug in Teams (Edge)`
-- `Debug in Teams (Chrome)`
-- `Debug in Teams (Desktop)`
+| Configuração | Uso recomendado |
+|---|---|
+| `Debug in Teams (Edge)` | Depuração via navegador Edge |
+| `Debug in Teams (Chrome)` | Depuração via navegador Chrome |
+| `Debug in Teams (Desktop)` | Depuração no cliente desktop do Teams |
 
 Use o Teams para validar:
-- Instalação e fluxo completo do app
+- Fluxo completo de instalação do app
 - Streaming no cliente real
 - Feedback loop, badge de IA e sensitivity label
 
 ---
 
-## Estrutura do repositório
+## Implantação no Azure
 
-```
-.
-|-- appPackage/
-|   |-- manifest.json
-|   |-- color.png
-|   `-- outline.png
-|-- devTools/
-|-- env/
-|   |-- .env.local.example
-|   |-- .env.local.user.example
-|   `-- .env.dev
-|-- infra/
-|   |-- azure.bicep
-|   |-- azure.parameters.json
-|   `-- botRegistration/
-|       `-- azurebot.bicep
-|-- src/
-|   |-- app.py
-|   |-- agent.py
-|   |-- config.py
-|   |-- sdk_workarounds.py
-|   |-- requirements.txt
-|   `-- prompts/
-|       `-- chat/
-|           |-- skprompt.txt
-|           `-- config.json
-|-- m365agents.yml
-`-- README.md
-```
+### Recursos Provisionados
+
+O comando **Provision** do toolkit cria os seguintes recursos na sua subscription:
+
+| Recurso | SKU | Descrição |
+|---|---|---|
+| App Service Plan | Linux B1 | Plano de hospedagem do bot |
+| Web App | Python 3.11 | Instância do bot em execução |
+| User Assigned Managed Identity | — | Identidade sem senha para autenticação |
+| Azure Bot Service | — | Registro do bot no Bot Framework vinculado ao Teams |
+
+### CI/CD com GitHub Actions
+
+O workflow [.github/workflows/provision_and_deploy.yml](.github/workflows/provision_and_deploy.yml) executa provision e deploy automaticamente.
+
+Configure os seguintes secrets no repositório GitHub:
+
+| Secret | Descrição |
+|---|---|
+| `AZURE_CLIENT_ID` | Client ID da Service Principal |
+| `AZURE_TENANT_ID` | Tenant ID do Azure AD |
+| `AZURE_SUBSCRIPTION_ID` | ID da subscription alvo |
+| `SECRET_AZURE_OPENAI_API_KEY` | Chave de API do Azure OpenAI |
 
 ---
 
-## Segurança
+## Estrutura do Repositório
 
-- Não commite chaves, tokens ou senhas reais
-- Mantenha credenciais nos arquivos `env/*.user` (gitignored)
-- Se um segredo foi commitado por engano, rotacione-o imediatamente
-- Em produção, prefira Managed Identity no lugar de API keys
+```
+teams-ai-agent-python/
+├── .github/
+│   └── workflows/
+│       └── provision_and_deploy.yml   # Pipeline CI/CD
+├── appPackage/
+│   ├── manifest.json                  # Manifesto do app Teams
+│   ├── color.png                      # Ícone colorido (192x192)
+│   └── outline.png                    # Ícone outline (32x32)
+├── devTools/                          # Ferramentas locais do toolkit
+├── env/
+│   ├── .env.local.example             # Template de variáveis locais
+│   ├── .env.local.user.example        # Template de secrets locais
+│   └── .env.dev                       # Variáveis de deploy Azure
+├── infra/
+│   ├── azure.bicep                    # Template de provisionamento
+│   ├── azure.parameters.json          # Parâmetros do Bicep
+│   └── botRegistration/
+│       └── azurebot.bicep             # Registro do Azure Bot
+├── src/
+│   ├── app.py                         # Servidor HTTP e roteamento
+│   ├── agent.py                       # Lógica do agente e streaming
+│   ├── config.py                      # Validação de configuração
+│   ├── sdk_workarounds.py             # Patches de compatibilidade SDK
+│   ├── requirements.txt               # Dependências Python
+│   └── prompts/
+│       └── chat/
+│           ├── skprompt.txt           # Prompt de sistema
+│           └── config.json            # Parâmetros de completion
+├── m365agents.yml                     # Workflow do toolkit (provision/deploy)
+├── .gitignore
+└── README.md
+```
 
 ---
 
@@ -276,4 +290,12 @@ Use o Teams para validar:
 - [Microsoft 365 Agents SDK for Python](https://github.com/microsoft/agents-for-python)
 - [Microsoft 365 Agents Toolkit](https://aka.ms/teams-toolkit)
 - [Azure OpenAI Service](https://learn.microsoft.com/azure/ai-services/openai/)
-- [Bot Framework Documentation](https://learn.microsoft.com/azure/bot-service/)
+- [Azure Bot Service](https://learn.microsoft.com/azure/bot-service/)
+- [Teams App Manifest Schema](https://learn.microsoft.com/microsoftteams/platform/resources/schema/manifest-schema)
+- [Bicep Documentation](https://learn.microsoft.com/azure/azure-resource-manager/bicep/)
+
+---
+
+## Licença
+
+Distribuído sob a licença MIT. Consulte o arquivo [LICENSE](LICENSE) para mais detalhes.
