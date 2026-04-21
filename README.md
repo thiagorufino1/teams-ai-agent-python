@@ -120,22 +120,20 @@ As variáveis de saída do Bicep (BOT_ID, BOT_DOMAIN, etc.) são gravadas automa
 
 ## Primeiros passos após clonar
 
-**1. Instalar dependências**
-
-```powershell
-python -m venv venv
-.\venv\Scripts\activate
-pip install -r src/requirements.txt
-```
+**1. Clonar e Iniciar**
+Basta abrir o projeto no VS Code e pressionar **F5**. O toolkit agora possui uma tarefa de automação que criará a `venv` e instalará as dependências para você automaticamente.
 
 **2. Criar os arquivos de ambiente a partir dos templates**
 
 ```bash
-cp env/.env.local.example      env/.env.local
-cp env/.env.local.user.example env/.env.local.user
+cp env/.env.local.example           env/.env.local
+cp env/.env.local.user.example      env/.env.local.user
+cp env/.env.playground.example      env/.env.playground
+cp env/.env.playground.user.example env/.env.playground.user
 ```
 
-**3. Preencher as credenciais em `env/.env.local.user`**
+**3. Preencher as credenciais nos arquivos `.user`**
+Abra `env/.env.local.user` e `env/.env.playground.user` e insira suas chaves do Azure OpenAI.
 
 ```env
 SECRET_AZURE_OPENAI_API_KEY=sua_chave_aqui

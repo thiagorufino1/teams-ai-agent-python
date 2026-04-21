@@ -5,6 +5,24 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "Validate Python environment",
+            "type": "shell",
+            "command": "python -m venv venv && .\\venv\\Scripts\\activate && pip install -r src/requirements.txt",
+            "windows": {
+                "command": "if (!(Test-Path venv)) { python -m venv venv }; .\\venv\\Scripts\\activate; pip install -r src/requirements.txt"
+            },
+            "linux": {
+                "command": "if [ ! -d \"venv\" ]; then python3 -m venv venv; fi; . venv/bin/activate; pip install -r src/requirements.txt"
+            },
+            "osx": {
+                "command": "if [ ! -d \"venv\" ]; then python3 -m venv venv; fi; . venv/bin/activate; pip install -r src/requirements.txt"
+            },
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            }
+        },
+        {
             // Check all required prerequisites.
             // See https://aka.ms/teamsfx-tasks/check-prerequisites to know the details and how to customize the args.
             "label": "Validate prerequisites (Microsoft 365 Agents Playground)",
@@ -37,6 +55,7 @@
         {
             "label": "Start Agent Locally",
             "dependsOn": [
+                "Validate Python environment",
                 "Validate prerequisites",
                 "Start local tunnel",
                 "Provision",

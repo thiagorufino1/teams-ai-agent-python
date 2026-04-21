@@ -1,4 +1,4 @@
-python-dotenv
-microsoft-agents-hosting-aiohttp
-microsoft-agents-authentication-msal
-openai
+python-dotenv>=1.2.2
+microsoft-agents-hosting-aiohttp>=0.8.0
+microsoft-agents-authentication-msal>=0.8.0
+openai>=2.31.0

@@ -62,7 +62,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/src/app.py",
       "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/Scripts/python.exe",
+      "python": "${command:python.interpreterPath}",
       "console": "integratedTerminal"
     },
     {
@@ -71,7 +71,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/src/app.py",
       "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/Scripts/python.exe",
+      "python": "${command:python.interpreterPath}",
       "console": "integratedTerminal",
       "serverReadyAction": {
         "pattern": "(started|listening|Running|Serving) (at|on) (https?://\\S+)",
