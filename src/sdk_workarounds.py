@@ -4,7 +4,14 @@ from typing import Optional
 
 from microsoft_agents.activity import Activity, ClientCitation, SensitivityUsageInfo
 from microsoft_agents.activity.entity import AIEntity
-from microsoft_agents.hosting.aiohttp.app.streaming.streaming_response import StreamingResponse
+
+try:
+    from microsoft_agents.hosting.aiohttp.app.streaming.streaming_response import StreamingResponse
+except ModuleNotFoundError:
+    try:
+        from microsoft_agents.hosting.aiohttp.streaming.streaming_response import StreamingResponse
+    except ModuleNotFoundError:
+        StreamingResponse = None
 
 
 def apply_sdk_workarounds() -> None:
@@ -48,6 +55,9 @@ def _patch_activity_add_ai_metadata() -> None:
 
 def _patch_streaming_response_feedback_loop() -> None:
     """Fix SDK bug: feedbackLoop is set on streaminfo entity but Teams expects it in channel_data."""
+    if StreamingResponse is None:
+        return
+
     if getattr(StreamingResponse._send_activity, "_patched_for_feedback_channel_data", False):
         return
 
