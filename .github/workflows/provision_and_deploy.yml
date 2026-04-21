@@ -35,6 +35,9 @@ jobs:
       - name: Login to Azure with service principal
         run: atk auth login azure --username "${{ env.AZURE_CLIENT_ID }}" --service-principal true --tenant "${{ env.AZURE_TENANT_ID }}" --password "${{ env.AZURE_CLIENT_SECRET }}" --interactive false
 
+      - name: Select Azure subscription
+        run: atk auth set --subscription "${{ env.AZURE_SUBSCRIPTION_ID }}"
+
       - name: Provision resources
         run: atk provision --env dev --interactive false
 
