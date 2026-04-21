@@ -135,6 +135,20 @@ async def on_message(context: TurnContext, state: TurnState):
                     f"[stream] queued chunk #{chunk_count} ({len(content)} chars)",
                     flush=True,
                 )
+        if not assistant_message:
+            fallback = "No content was returned by the model."
+            assistant_message = fallback
+            response.queue_text_chunk(fallback)
+            print("[stream] model returned no content", flush=True)
+    except Exception as exc:
+        print(f"[stream] openai error: {exc}", file=sys.stderr, flush=True)
+        traceback.print_exc()
+        fallback = (
+            "Desculpe, ocorreu um erro ao gerar a resposta. "
+            "Verifique os logs do App Service para detalhes."
+        )
+        assistant_message = fallback
+        response.queue_text_chunk(fallback)
     finally:
         print(
             "[stream] ending",

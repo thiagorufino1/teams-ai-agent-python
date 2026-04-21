@@ -1,4 +1,5 @@
 import os
+from aiohttp import web
 from microsoft_agents.hosting.core import AgentApplication, AgentAuthConfiguration
 from microsoft_agents.hosting.aiohttp import (
     start_agent_process,
@@ -18,7 +19,12 @@ async def entry_point(req: Request) -> Response:
         adapter,
     )
 
+async def health(_req: Request) -> Response:
+    return web.json_response({"status": "ok"})
+
 app = Application(middlewares=[jwt_authorization_middleware])
+app.router.add_get("/", health)
+app.router.add_get("/healthz", health)
 app.router.add_post("/api/messages", entry_point)
 app["agent_configuration"] = connection_manager.get_default_connection_configuration()
 app["agent_app"] = agent_app
