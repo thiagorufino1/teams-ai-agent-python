@@ -33,10 +33,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24' # Usando Node 24 explicitamente
+          node-version: '24'
 
-      - name: Install Teams Toolkit CLI
-        run: npm install -g @microsoft/teamsapp-cli
+      - name: Install Teams Toolkit CLI (Legacy teamsfx for v1.11 support)
+        run: npm install -g @microsoft/teamsfx-cli
 
       - name: Login to Azure
         uses: azure/login@v1
@@ -44,7 +44,7 @@ jobs:
           creds: '{"clientId":"${{ env.AZURE_CLIENT_ID }}","clientSecret":"${{ env.AZURE_CLIENT_SECRET }}","tenantId":"${{ env.AZURE_TENANT_ID }}","subscriptionId":"${{ env.AZURE_SUBSCRIPTION_ID }}"}'
 
       - name: Provision Resources (Dev)
-        run: teamsapp provision --env dev --interactive false
+        run: teamsfx provision --env dev --interactive false
 
       - name: Deploy Application (Dev)
-        run: teamsapp deploy --env dev --interactive false
+        run: teamsfx deploy --env dev --interactive false
