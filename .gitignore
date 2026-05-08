@@ -1,12 +1,13 @@
 # Teams Toolkit / M365 Agents
+.env
 env/.env.*.user
 env/.env.local
 env/.env.playground
-.env
-# *.local.yml
-# *.playground.yml
 appPackage/build/
 state.json
+devTools/*.log
+devTools/.playground.installInfo.json
+devTools/playground/node_modules/
 
 # Python
 __pycache__/
@@ -27,11 +28,7 @@ htmlcov/
 # env/  <-- Removed to allow .env.dev and .env.test
 
 # VS Code
-.vscode/*
-!.vscode/extensions.json
-!.vscode/launch.json
-!.vscode/tasks.json
-!.vscode/settings.json
+.vscode/
 *.code-workspace
 
 # OS files
@@ -40,7 +37,4 @@ Thumbs.db
 
 # Others
 node_modules/
-devTools/playground/node_modules/
-devTools/*.log
-devTools/.playground.installInfo.json
 *.tmp
