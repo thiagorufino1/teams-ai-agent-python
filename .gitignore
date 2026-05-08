@@ -28,7 +28,11 @@ htmlcov/
 # env/  <-- Removed to allow .env.dev and .env.test
 
 # VS Code
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
 *.code-workspace
 
 # OS files
